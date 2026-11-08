@@ -174,3 +174,49 @@ def test_ps1_checkout_keeps_long_paths_enabled(tmp_path):
     rerun = _run_repository_stage("ps1", tmp_path, install, origin.as_uri())
     assert rerun.returncode == 0, rerun.stdout + rerun.stderr
     assert git(install, "config", "--local", "--get", "core.longpaths").stdout.strip() == "true"
+
+
+def _data_volume_ready() -> bool:
+    script = f". '{(ROOT / 'scripts' / 'install.ps1').as_posix()}'\nif (Test-ReadyDataVolume 'G') {{ 'g-ready' }} else {{ 'g-absent' }}\n"
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-Command", script],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return "g-ready" in result.stdout
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="needs PowerShell")
+def test_without_drive_g_the_download_stays_on_the_system_drive(tmp_path):
+    """No G: volume: a subscriber install still uses LocalAppData, and the report says so."""
+    if _data_volume_ready():
+        pytest.skip("this machine has a ready G: volume")
+    local = tmp_path / "Local"
+    local.mkdir()
+    env = dict(os.environ)
+    env.pop("HERMES_HOME", None)
+    env["LOCALAPPDATA"] = str(local)
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-File", str(ROOT / "scripts" / "install.ps1"), "-ShowResolvedPaths"],
+        env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["data_drive"] == ""
+    home = report["hermes_home"].replace("\\", "/").rstrip("/")
+    install = report["install_dir"].replace("\\", "/").rstrip("/")
+    assert home == f"{local.as_posix()}/hermes"
+    assert install == f"{home}/hermes-agent"
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="needs PowerShell")
+def test_an_existing_system_install_is_not_treated_as_empty(tmp_path):
+    home = tmp_path / "Local" / "hermes"
+    home.mkdir(parents=True)
+    (home / "config.yaml").write_text("model: x\n", encoding="utf-8")
+    script = f"""
+. '{(ROOT / 'scripts' / 'install.ps1').as_posix()}'
+$env:LOCALAPPDATA = '{home.parent.as_posix()}'
+if (Test-HermesHomeInUse (Join-Path $env:LOCALAPPDATA 'hermes')) {{ 'in-use' }} else {{ 'free' }}
+"""
+    result = subprocess.run([POWERSHELL, "-NoProfile", "-Command", script],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "in-use" in result.stdout

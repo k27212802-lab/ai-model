@@ -314,8 +314,45 @@ $script:NormalizedPathRewrites = @{}
 # caller's process env, so the normalization prologue runs only on real
 # entry. Called from the entry dispatch below, before -ProtocolVersion and
 # every other switch, so the resolved paths are always the install's own.)
+# A second fixed disk (G:) can hold the full git checkout, PortableGit, and
+# the uv/Python downloads. C: stays the system drive. CD-ROM and unknown
+# volumes are not data disks. A read never creates the directory.
+function Test-ReadyDataVolume([string]$Letter) {
+    if ($Letter -notmatch '^[A-Za-z]$') { return $false }
+    try {
+        $info = New-Object System.IO.DriveInfo $Letter
+        if (-not $info.IsReady) { return $false }
+        $kind = [string]$info.DriveType
+        if ($kind -eq 'CDRom' -or $kind -eq 'NoRootDirectory' -or $kind -eq 'Unknown') { return $false }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Test-HermesHomeInUse([string]$Root) {
+    if (-not $Root) { return $false }
+    foreach ($rel in @('hermes-agent\.git', 'config.yaml', '.env', 'tools')) {
+        if (Test-Path -LiteralPath (Join-Path $Root $rel)) { return $true }
+    }
+    return $false
+}
+
+# Where a subscriber's download lands when they did not name a directory.
+# An existing install on C: stays there. Otherwise a ready G: wins, so the
+# full clone does not fill the system drive.
+function Get-VolumeHermesHome {
+    $saved = [Environment]::GetEnvironmentVariable('HERMES_HOME', 'User')
+    if ($saved) { return $saved }
+    if (-not (Test-ReadyDataVolume 'G')) { return $null }
+    $systemHome = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'hermes' } else { '' }
+    if (Test-HermesHomeInUse $systemHome) { return $null }
+    return 'G:\hermes'
+}
+
 function Initialize-ResolvedPaths {
     $script:NormalizedProfilePaths = Set-LongProfileEnvVars
+    $script:UsingDataDrive = $false
 
     # Re-derive the install paths now that the env vars behind their defaults
     # are long. An explicitly passed -HermesHome / -InstallDir is normalized
@@ -327,7 +364,10 @@ function Initialize-ResolvedPaths {
         ConvertTo-LongPath $HermesHome
     } else {
         ConvertTo-LongPath $(
-            if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\hermes" }
+            if ($env:HERMES_HOME) { $env:HERMES_HOME } else {
+                $onVolume = Get-VolumeHermesHome
+                if ($onVolume) { $onVolume } else { "$env:LOCALAPPDATA\hermes" }
+            }
         )
     }
     $resolvedDir = if ($script:BoundParams.ContainsKey('InstallDir')) {
@@ -361,6 +401,14 @@ function Initialize-ResolvedPaths {
     Set-Variable -Scope 1 -Name HermesHome -Value $resolvedHome
     Set-Variable -Scope 1 -Name InstallDir -Value $resolvedDir
     $env:HERMES_HOME = $resolvedHome
+    # G:\hermes (or a saved home that already lives on G:). Bootstrap zips and
+    # uv's Python download follow it; a home on C: keeps the system temp dir.
+    $script:UsingDataDrive = "$resolvedHome".StartsWith('G:\', [StringComparison]::OrdinalIgnoreCase)
+    if ($script:UsingDataDrive) {
+        if (-not $env:UV_PYTHON_INSTALL_DIR) { $env:UV_PYTHON_INSTALL_DIR = Join-Path $resolvedHome 'python' }
+        if (-not $env:UV_CACHE_DIR) { $env:UV_CACHE_DIR = Join-Path $resolvedHome 'cache\uv' }
+        Write-PathDiag "disk G is ready; the checkout and downloads go to $resolvedHome and do not fill disk C"
+    }
 
     # Captured here, where the values are final. The report goes to STDOUT as
     # JSON under -ShowResolvedPaths: on Windows a child's stderr does not
@@ -374,7 +422,27 @@ function Initialize-ResolvedPaths {
         temp              = $env:TEMP
         hermes_home       = $resolvedHome
         install_dir       = $resolvedDir
+        data_drive        = $(if ($script:UsingDataDrive) { 'G' } else { '' })
     }
+}
+
+# New terminals resolve HERMES_HOME, not the path this one process used.
+# Written only for a real install onto G:, and never over an existing value.
+function Publish-UserHermesHome([string]$Root) {
+    if ($env:OS -ne 'Windows_NT' -or -not $script:UsingDataDrive) { return }
+    $saved = [Environment]::GetEnvironmentVariable('HERMES_HOME', 'User')
+    if ($saved) { return }
+    try {
+        [Environment]::SetEnvironmentVariable('HERMES_HOME', $Root, 'User')
+        Write-PathDiag "saved HERMES_HOME=$Root for new terminals"
+    } catch {
+        Write-PathDiag "could not save HERMES_HOME for new terminals: $($_.Exception.Message)"
+    }
+}
+
+function Get-BootstrapTemp([string]$Name) {
+    $base = if ($script:UsingDataDrive) { Join-Path $HermesHome 'tmp' } else { [IO.Path]::GetTempPath() }
+    return Join-Path $base $Name
 }
 
 # Resolve the pm store root (same resolution as pm's store_root()):
@@ -532,7 +600,7 @@ function Get-Uv {
         Remove-Item -Path $uvExe -Force
     }
     Log "downloading uv $($script:UvPinVersion) ($target)"
-    $tmpDir = Join-Path ([IO.Path]::GetTempPath()) "hermes-uv-bootstrap-$PID"
+    $tmpDir = Get-BootstrapTemp "hermes-uv-bootstrap-$PID"
     try {
         New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
         $zipPath = Join-Path $tmpDir "uv.zip"
@@ -619,7 +687,7 @@ function Get-PinnedGit {
         }
     }
     Log "installing git $($script:GitPinVersion) ($target)"
-    $tmpDir = Join-Path ([IO.Path]::GetTempPath()) "hermes-git-bootstrap-$PID"
+    $tmpDir = Get-BootstrapTemp "hermes-git-bootstrap-$PID"
     # Extract beside the entry, not in %TEMP%: the final step must be a
     # rename on one volume. Created only after the download verifies, so
     # rejected bytes never touch the store.
@@ -1690,6 +1758,8 @@ if ($Manifest) {
     @{ protocol_version = 1; stages = $Stages } | ConvertTo-Json -Depth 4 -Compress | Write-Output
     exit 0
 }
+
+Publish-UserHermesHome $HermesHome
 
 if ($Stage) {
     # The $Stages table is the single authoritative list: it drives the
