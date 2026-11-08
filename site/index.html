@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hermes Agent — скачать для Windows</title>
+  <title>Скачать Hermes Agent</title>
   <style>
     :root {
       color-scheme: dark;
@@ -20,37 +20,19 @@
       margin: 0;
       min-height: 100vh;
       font-family: "Segoe UI", sans-serif;
-      background:
-        radial-gradient(900px 420px at 10% -10%, #3a3418 0%, transparent 60%),
-        var(--bg);
+      background: var(--bg);
       color: var(--text);
     }
     main {
-      width: min(760px, calc(100% - 32px));
+      width: min(640px, calc(100% - 32px));
       margin: 0 auto;
-      padding: 64px 0 80px;
+      padding: 72px 0;
     }
-    p { line-height: 1.5; }
-    .mark {
-      width: 48px;
-      height: 48px;
-      border: 1px solid var(--gold);
-      border-radius: 14px;
-      display: grid;
-      place-items: center;
-      color: var(--gold);
-      font-weight: 700;
-    }
-    h1 { font-size: 40px; line-height: 1.1; margin: 20px 0 8px; }
-    .lead { color: var(--muted); font-size: 18px; margin: 0 0 28px; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 24px;
-    }
+    h1 { font-size: 36px; margin: 0 0 12px; }
+    p { line-height: 1.5; color: var(--muted); }
     a.download {
       display: inline-block;
+      margin-top: 8px;
       background: var(--gold);
       color: var(--gold-ink);
       text-decoration: none;
@@ -58,36 +40,14 @@
       padding: 14px 22px;
       border-radius: 999px;
     }
-    a.download:hover { filter: brightness(1.05); }
-    .file {
-      margin: 14px 0 0;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    ul { margin: 22px 0 0; padding: 0; list-style: none; }
-    li {
-      padding: 12px 0;
-      border-top: 1px solid var(--line);
-    }
-    strong { color: var(--text); }
-    .muted { color: var(--muted); }
   </style>
 </head>
 <body>
   <main>
-    <div class="mark">G:</div>
-    <h1>Hermes Agent для Windows</h1>
-    <p class="lead">Полный исходник Nous Research Hermes Agent, собранный в один установщик. Распаковка идёт на диск G.</p>
-    <section class="card">
-      <a class="download" href="https://github.com/k27212802-lab/ai-model/raw/6736ace30962e40d8a8e09f974466879b73d54c7/download-site/Hermes-Agent-Setup.exe">Скачать Hermes-Agent-Setup.exe</a>
-      <p class="file">Hermes-Agent-Setup.exe · 98.7 МБ · Windows 10 или новее</p>
-      <ul>
-        <li><strong>Что внутри.</strong> <span class="muted">Весь исходный код Hermes Agent, не урезанная сборка.</span></li>
-        <li><strong>Куда ставится.</strong> <span class="muted">Если диск G готов и свободно хотя бы 4 ГБ, файлы распаковываются в G:\hermes. Диск C не заполняется.</span></li>
-        <li><strong>Если диска G нет.</strong> <span class="muted">Установщик кладёт файлы в %LOCALAPPDATA%\hermes.</span></li>
-        <li><strong>Первый запуск.</strong> <span class="muted">Исходники уже в файле. Git и Python докачиваются в ту же папку. Потом в новом окне PowerShell выполните hermes.</span></li>
-      </ul>
-    </section>
+    <h1>Скачать Hermes</h1>
+    <p>Официальный установщик Windows с сайта Nous Research.</p>
+    <p><a class="download" href="https://hermes-assets.nousresearch.com/Hermes-Setup.exe?build=21ae0e1238fd">Скачать Hermes-Setup.exe</a></p>
+    <p>Файл лежит на hermes-assets.nousresearch.com. Это не сборка из этого репозитория.</p>
   </main>
 </body>
 </html>
