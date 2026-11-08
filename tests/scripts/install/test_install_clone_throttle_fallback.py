@@ -220,3 +220,32 @@ if (Test-HermesHomeInUse (Join-Path $env:LOCALAPPDATA 'hermes')) {{ 'in-use' }} 
                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "in-use" in result.stdout
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="needs PowerShell")
+def test_payload_switch_uses_the_unpacked_tree(tmp_path):
+    """The setup exe unpacks the source first; that tree must not be cloned over."""
+    install = tmp_path / "install"
+    install.mkdir()
+    (install / "cli.py").write_text("print(1)\n", encoding="utf-8")
+    (install / "scripts").mkdir()
+    (install / "scripts" / "install.ps1").write_text("# payload\n", encoding="utf-8")
+    (install / "pm").mkdir()
+    (install / "pm" / "lock.json").write_text("{}\n", encoding="utf-8")
+    env = dict(os.environ, HOME=tmp_path.as_posix(), HERMES_HOME=(tmp_path / "home").as_posix(),
+               HERMES_RUNTIME_DIR=str(tmp_path / "tools"))
+    version = json.loads((ROOT / "pm" / "lock.json").read_text(encoding="utf-8-sig"))["packages"]["git"]["version"]
+    cmd = tmp_path / "tools" / f"git-{version}-win32-x64" / "cmd"
+    cmd.mkdir(parents=True, exist_ok=True)
+    for name in ("git.exe", "git"):
+        (cmd / name).symlink_to(shutil.which("git"))
+    env["PATH"] = str(cmd) + os.pathsep + env["PATH"]
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-File", str(ROOT / "scripts" / "install.ps1"),
+         "-Stage", "repository", "-NonInteractive", "-Payload",
+         "-InstallDir", str(install), "-HermesHome", str(tmp_path / "home")],
+        env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "using packed source" in (result.stdout + result.stderr)
+    assert (install / "cli.py").read_text(encoding="utf-8") == "print(1)\n"
+    assert not (install / ".git").exists()

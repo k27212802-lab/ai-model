@@ -46,7 +46,10 @@ param(
     # path doesn't exist" report is which paths it actually resolved --
     # especially on profiles Windows exposes through an 8.3 alias.
     #   powershell -File install.ps1 -ShowResolvedPaths
-    [switch]$ShowResolvedPaths
+    [switch]$ShowResolvedPaths,
+    # The Windows .exe already unpacked this tree. Skip the git clone and
+    # install tools into the directory that holds cli.py.
+    [switch]$Payload
 )
 
 $ErrorActionPreference = "Stop"
@@ -1134,6 +1137,16 @@ function Stage-Repository {
     # parameter through this scope.
     $chosen = ''
     $release = ''
+    if ($Payload) {
+        foreach ($rel in @('cli.py', 'scripts\install.ps1', 'pm\lock.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $InstallDir $rel))) {
+                Fail "packed source is incomplete ($rel is missing in $InstallDir). Unpack the exe again." other
+            }
+        }
+        if (-not (Ensure-Git)) { Fail "no pinned Git artifact for this Windows architecture" unsupported_platform }
+        Write-Ok "using packed source at $InstallDir"
+        return
+    }
     if ($Channel -and $Channel -cnotin @('stable', 'main')) { Fail "-Channel must be stable or main, not $Channel" other }
     # Refuse an occupied non-checkout before provisioning Git. This check
     # needs no tool download and must not overwrite a user's existing files.
